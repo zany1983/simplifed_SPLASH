@@ -1,0 +1,318 @@
+---
+title: "Find chimera_count"
+author: "Yan"
+date: "2020/11/13"
+output: html_document
+---
+
+counting chimeras surporting particular interactions.
+
+RNA secondary structure were predicted by hybrid-min for two fragments or by comrades for one fragment
+read contact matrix, and calculate supporting chimeras for each paring base
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+```
+
+
+
+```{r useful functions}
+hash <- function(key,value){
+  hash <- value
+  names(hash) <- key
+  return( hash)
+}
+```
+
+
+```{r samplelist}
+
+dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/hyb_files/"
+
+samplelist <- c(
+      "L1","L2","L3",
+      "C1","C2","C3",
+      "V1","V2","V3",
+      "L1-N","C1-N","V1-N")
+
+names(samplelist) <- samplelist
+
+grouplist <- list(
+  C = c("C1", "C2", "C3"),
+  L = c("L1", "L2", "L3"),
+  V = c("V1", "V2", "V3"),
+  L_N = "L1-N",
+  C_N = "C1-N",
+  V_N = "V1-N"
+  )
+
+
+
+```
+
+
+```{r}
+merged.contact.matrx <- lapply(names(grouplist),FUN = function(g){
+  group <- grouplist[[g]]
+  cdtlist <- lapply(group, function(x){
+    
+data <- data.table::fread(paste0(dir,x,"_R2_virus-virus.entire.cdt.gz"),header = T,sep = "\t")
+data2 <- as.data.frame(data[2:3002,c(2,4:3004)],row.names = data$COL2[2:3002]) 
+data3 <- data2 %>% reshape2::melt(id.vars="COL2",value.name="count") %>%
+  type.convert() %>% as.data.frame()
+}) %>% bind_rows() %>% group_by(variable,COL2) %>% summarise(count = 10*sum(count)) %>% mutate(sample=g) %>% as.data.frame()
+})
+
+names(merged.contact.matrx) <- names(grouplist)
+
+saveRDS(merged.contact.matrx,file = "merged.contact.matrx.rds",compress = T)
+merged.contact.matrx <- readRDS("merged.contact.matrx.rds")
+
+```
+
+
+
+```{r count chimeras for 2 sequences}
+count_chimera_2seq <- function(start1=1,end1=2,start2=3,end2=4,bin=10,contact.matrix=NULL , ct.file.name=NULL){
+  
+  ct.head <- readLines(con = ct.file.name,n = 1)
+  ct <- data.table::fread(ct.file.name,skip = 1)
+  ct$V6 <- c(start1:end1,start2:end2)
+  ct$V2 <- sub(pattern = "[Tt]",replacement = "u",perl = T,x = ct$V2)
+  writeLines(text =ct.head, con =ct.file.name, sep = "\n")
+  data.table::fwrite(x = ct,file =ct.file.name,append = T,row.names = F,col.names = F,quote = F,sep = "\t" )
+
+  len1 <- end1-start1+1
+  len2 <- end2-start2+1
+  
+  color.maps <- lapply((names(contact.matrix)),function(x){
+    matrix.sample <- contact.matrix[[x]] %>% as.data.frame() %>% mutate(Arm5= bin*as.integer(variable/bin),
+                                                                        Arm3= bin*as.integer(COL2/bin)) %>% 
+      group_by(Arm5,Arm3,sample) %>% summarise(count = sum(count))
+    
+    color.map <- lapply (1:nrow(ct), function(i){
+      paired.i <- as.integer(ct[i,5])
+      
+      #if the ith position is in seq1, realposition is start1+i-1, otherwise, realposition is start2-1 + rank in the 2nd seq
+      bin1 <- ifelse(i <= len1, as.integer((start1-1+i)/bin)*bin,as.integer((i-len1+start2-1)/bin)*bin)
+      
+      if(paired.i == 0){ #not paired, don't count chimeras
+        res <- 0
+      }
+      else{
+        bin2 <- ifelse(paired.i <= len1,as.integer((start1-1+paired.i)/bin)*bin,as.integer((paired.i-len1+start2-1)/bin)*bin)
+        
+        res1 <- 10*matrix.sample$count[(matrix.sample$Arm3== bin2)&(matrix.sample$Arm5== bin1)] %>% as.numeric()
+        res2 <- 10*matrix.sample$count[(matrix.sample$Arm3== bin1)&(matrix.sample$Arm5== bin2)] %>% as.numeric()
+        
+        res <- log2(1+res1+res2) 
+      }
+      
+      data <- data.frame(i=i,value=res)
+    }) %>% bind_rows()
+    
+    data.table::fwrite(color.map,file=paste(x,start1,end1,start2,end2,"Bin",bin,".color.map.txt",sep = "_"),sep = "\t",col.names = F,row.names = F)
+  })
+  
+ 
+}
+
+```
+
+
+
+# recalculate TRS-L-TRS-B 
+
+
+```{r loop2 for TRS_L-TRS_B_3904}
+
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 3904,end2=4010,bin = 10,contact.matrix =merged.contact.matrx ,ct.file.name = "TRS_L.fa-TRS_B_3904-4010.fa.ct")
+
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 12270,end2=12342,ct.file.name = "TRS_L_34-100.fa-TRS_B_12270-12342.fa.ct")
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 21501,end2=21600,ct.file.name =  "TRS_L_34-100.fa-21500_21600.fa.ct")
+system("hybrid-min 34-77.fa 21501-21549.fa")
+count_chimera_2seq(start1 = 34,end1 = 77,start2 = 21501,end2=21549,ct.file.name =  "34-77.fa-21501-21549.fa.ct")
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 25380,end2=25480,ct.file.name =  "TRS_L_34-100.fa-25380-25480-ORF3a.fa.ct")
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 28296,end2=28380,ct.file.name =  "TRS_L_34-100.fa-28296-28380-N.fa.ct")
+
+```
+
+```{r}
+count_chimera_2seq(start1 = 34,end1 = 77,start2 = 21501,end2=21549,bin = 10, contact.matrix = merged.contact.matrx,ct.file.name =  "34-77.fa-21501-21549.fa.ct")
+
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 25380,end2=25480,contact.matrix = merged.contact.matrx,ct.file.name =  "TRS_L_34-100.fa-25380-25480-ORF3a.fa.ct")
+count_chimera_2seq(start1 = 34,end1 = 100,start2 = 28296,end2=28380,contact.matrix = merged.contact.matrx,ct.file.name =  "TRS_L_34-100.fa-28296-28380-N.fa.ct")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 3904,end2=4010,contact.matrix = merged.contact.matrx,ct.file.name =  "TRS_L.fa-TRS_B_3904-4010.fa.ct")
+
+x <- system(command = "hybrid-min 1-100.fa 12300-12400.fa")
+
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 12301,end2=12400,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-12300-12400.fa.ct")
+
+```
+
+
+
+```{r FSE}
+x <- system(command = "hybrid-min FSE_13430_13547.fa 12641_12820.fa")
+
+count_chimera_2seq(start1 = 13430,end1 = 13547,start2 = 12641,end2=12820,contact.matrix = merged.contact.matrx,ct.file.name =  "FSE_13430_13547.fa-12641_12820.fa.ct")
+
+x <- system(command = "hybrid-min FSE_13430_13547.fa 12151_12300.fa")
+
+count_chimera_2seq(start1 = 13430,end1 = 13547,start2 = 12151,end2=12300,contact.matrix = merged.contact.matrx,ct.file.name =  "FSE_13430_13547.fa-12151_12300.fa.ct")
+count_chimera_2seq(start1 = 13400,end1 = 13570,start2 = 12640,end2=12820,contact.matrix = merged.contact.matrx,ct.file.name =  "FSE1.loop1.up.fa-FSE1.loop1.down.fa.ct")
+
+count_chimera_2seq(start1 = 13430,end1 = 13590,start2 = 14530,end2=14730,contact.matrix = merged.contact.matrx,ct.file.name =  "13430-13590-Ziv-FSE.fa-14530-14730-FSE-Ach.fa.ct")
+
+
+#Ziv's arch
+x <- system(command = "hybrid-min 13370_13542_ZiV_FSE.fa 14794_14850_ziv_Arch.fa")
+count_chimera_2seq(start1 = 13370,end1 = 13542,start2 = 14794,end2=14850,contact.matrix = merged.contact.matrx,ct.file.name =  "13370_13542_ZiV_FSE.fa-14794_14850_ziv_Arch.fa.ct")
+
+x <- system(command = "hybrid-min 13370_13600_FSE.fa 14540_14740.fa")
+count_chimera_2seq(start1 = 13370,end1 = 13600,start2 = 14540,end2=14740,contact.matrix = merged.contact.matrx,ct.file.name =  "13370_13600_FSE.fa-14540_14740.fa.ct")
+```
+
+
+```{r count chimeras for 1 sequences}
+count_chimera_1seq <- function(start=1,end=2,bin=10,contact.matrix=NULL , ct.file.name=NULL){
+  
+  ct.head <- readLines(con = ct.file.name,n = 1)
+  ct <- data.table::fread(ct.file.name,skip = 1)
+  ct$V6 <- c(start:end)
+  ct$V2 <- sub(pattern = "[Tt]",replacement = "u",perl = T,x = ct$V2)
+  writeLines(text =ct.head, con =ct.file.name, sep = "\n")
+  data.table::fwrite(x = ct,file =ct.file.name,append = T,row.names = F,col.names = F,quote = F,sep = "\t" )
+
+  len1 <- end-start+1
+
+  
+  color.maps <- lapply((names(contact.matrix)),function(x){
+    matrix.sample <- contact.matrix[[x]] %>% as.data.frame() %>% mutate(Arm5= bin*as.integer(variable/bin),
+                                                                        Arm3= bin*as.integer(COL2/bin)) %>% 
+      group_by(Arm5,Arm3,sample) %>% summarise(count = sum(count))
+    
+    color.map <- lapply (1:nrow(ct), function(i){
+      paired.i <- as.integer(ct[i,5])
+      
+      #if the ith position is in seq1, realposition is start1+i-1, otherwise, realposition is start2-1 + rank in the 2nd seq
+      bin1 <- as.integer((start-1+i)/bin)*bin
+      
+      if(paired.i == 0){ #not paired, don't count chimeras
+        res <- 0
+      }
+      else{
+        bin2 <- as.integer((start-1+paired.i)/bin)*bin
+        
+        res1 <- 10*matrix.sample$count[(matrix.sample$Arm3== bin2)&(matrix.sample$Arm5== bin1)] %>% as.numeric()
+        res2 <- 10*matrix.sample$count[(matrix.sample$Arm3== bin1)&(matrix.sample$Arm5== bin2)] %>% as.numeric()
+        
+        res <- log2(1+res1+res2) 
+      }
+      
+      data <- data.frame(i=i,value=res)
+    }) %>% bind_rows()
+    
+    data.table::fwrite(color.map,file=paste(x,start,end,"Bin",bin,".color.map.txt",sep = "_"),sep = "\t",col.names = F,row.names = F)
+  })
+  
+}
+
+```
+
+```{r}
+count_chimera_1seq(start = 13462,end = 13542,contact.matrix = merged.contact.matrx,ct.file.name =  "FSE.ct")
+
+x <- system(command = "hybrid-ss-min 13370_13620.fa")
+count_chimera_1seq(start = 13370,end = 13620,contact.matrix = merged.contact.matrx,ct.file.name =  "13370_13620.fa.ct")
+
+
+x <- system(command = "hybrid-ss-min 13350_13630.fa")
+count_chimera_1seq(start = 13350,end = 13630,contact.matrix = merged.contact.matrx,ct.file.name =  "13350_13630.fa.ct")
+
+
+x <- system(command = "hybrid-ss-min 13360_13630.fa")
+count_chimera_1seq(start = 13360,end = 13630,contact.matrix = merged.contact.matrx,ct.file.name =  "13360_13630.fa.ct")
+
+x <- system(command = "comradesMakeConstraints -i /Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/hyb_files/C1_R2_gmax20_comp_SARS-CoV-2_no_polyA_hybrids_ua.hyb -f SARS-CoV-2_no_polyA.fasta.txt -b 13360 -e 13630")
+
+count_chimera_1seq(start = 13360,end = 13630,contact.matrix = merged.contact.matrx,ct.file.name =  "SARS-CoV-2_no_polyA.fasta_13360-13630.fasta.ct")
+
+```
+
+
+
+
+```{r 5'UTR}
+count_chimera_1seq(start = 1,end = 300,contact.matrix = merged.contact.matrx,ct.file.name =  "utr5.fa.ct")
+
+```
+
+
+
+
+```{r # 3'UTR}
+x <- system(command = "hybrid-ss-min 29559_29870.fa")
+count_chimera_1seq(start = 29559,end = 29870,contact.matrix = merged.contact.matrx,ct.file.name =  "29559_29870.fa_canoical.ct")
+
+
+
+x <- system(command = "hybrid-min 29691_29750.fa 29751_29820.fa")
+count_chimera_2seq(start1 = 29691,end1 = 29750,start2 = 29751,end2=29820,contact.matrix = merged.contact.matrx,ct.file.name =  "29691_29750.fa-29751_29820.fa.ct")
+
+```
+
+
+```{r genome cyclization}
+
+x <- system(command = "hybrid-min 1_200.fa 29610_29870.fa")
+
+count_chimera_2seq(start1 = 1,end1 = 200,start2 = 29611,end2=29870,contact.matrix = merged.contact.matrx,ct.file.name =  "1_200.fa-29610_29870.fa.ct")
+
+x <- system(command = "hybrid-min 1_130.fa 29810_29870.fa")
+count_chimera_2seq(start1 = 1,end1 = 130,start2 = 29811,end2=29870,contact.matrix = merged.contact.matrx,ct.file.name =  "1_130.fa-29810_29870.fa.ct")
+
+```
+
+```{r}
+#S 
+
+x <- system(command = "hybrid-min 1-100.fa 21541_21700.fa")
+
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 21541,end2=21700,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-21541_21700.fa.ct")
+
+#E
+x <- system(command = "hybrid-min 1-100.fa 26181_26290.fa")
+
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 26181,end2=26290,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-26181_26290.fa.ct")
+
+#M
+x <- system(command = "hybrid-min 1-100.fa 26461_26610.fa")
+
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 26461,end2=26610,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-26461_26610.fa.ct")
+
+#ORF6
+x <- system(command = "hybrid-min 1-100.fa 27031_27240.fa")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 27031,end2=27240,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-27031_27240.fa.ct")
+
+#ORF7a
+x <- system(command = "hybrid-min 1-100.fa 27341_27440.fa")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 27341,end2=27440,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-27341_27440.fa.ct")
+
+#ORF8
+x <- system(command = "hybrid-min 1-100.fa 27881_28020.fa")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 27881,end2=28020,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-27881_28020.fa.ct")
+
+#N
+x <- system(command = "hybrid-min 1-100.fa 28201_28300.fa")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 28201,end2=28300,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-28201_28300.fa.ct")
+
+x <- system(command = "hybrid-min 1-100.fa 29501_29600.fa")
+count_chimera_2seq(start1 = 1,end1 = 100,start2 = 29501,end2=29600,contact.matrix = merged.contact.matrx,ct.file.name =  "1-100.fa-29501_29600.fa.ct")
+```
+
+
