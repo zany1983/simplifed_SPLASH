@@ -1,0 +1,936 @@
+---
+title: "DeSeq2"
+author: "Yan"
+date: "2020/11/17"
+output: html_document
+---
+```{r color}
+col_DE <- c("up"="#FF3333","down"="#3399DD")
+```
+
+we included V1 V2 and  V4.  
+# combined 3'-5'  and 5'-3' chimeras
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+options(digits = 5)
+library(data.table)
+library(ggrepel)
+library(data.table)
+library(ggpubr)
+```
+
+
+
+```{r useful functions}
+hash <- function(key,value){
+  hash <- value
+  names(hash) <- key
+  return( hash)
+}
+parse_ratio <- function(x) {
+  y= as.numeric(sub("/\\d+", "", x))/as.numeric(sub("\\d+/", "", x))
+} 
+
+Venn.diagram2<- function (x, filename, height = 12, width = 12, resolution = 500, 
+          imagetype = "pdf", units = "px", compression = "lzw", na = "stop", 
+          main = NULL, sub = NULL, main.pos = c(0.5, 1.05), main.fontface = "plain", 
+          main.fontfamily = "serif", main.col = "black", main.cex = 1, 
+          main.just = c(0.5, 1), sub.pos = c(0.5, 1.05), sub.fontface = "plain", 
+          sub.fontfamily = "serif", sub.col = "black", sub.cex = 1, 
+          sub.just = c(0.5, 1), category.names = names(x), force.unique = TRUE, 
+          print.mode = "raw", sigdigs = 3, direct.area = FALSE, area.vector = 0, 
+          hyper.test = FALSE, total.population = NULL, lower.tail = TRUE, 
+          ...) 
+{
+  library(VennDiagram)
+  time.string = gsub(":", "-", gsub(" ", "_", as.character(Sys.time())))
+
+  out.list = as.list(sys.call())
+  out.list[[1]] <- NULL
+  out.string = capture.output(out.list)
+  flog.info(out.string, name = "VennDiagramLogger")
+  if (direct.area) {
+    if (1 == length(area.vector)) {
+      list.names <- category.names
+      if (is.null(list.names)) {
+        list.names <- ""
+      }
+      grob.list <- VennDiagram::draw.single.venn(area = area.vector[1], 
+                                                 category = list.names, ind = FALSE, ...)
+    }
+    if (3 == length(area.vector)) {
+      grob.list <- VennDiagram::draw.pairwise.venn(area1 = area.vector[1], 
+                                                   area2 = area.vector[2], cross.area = area.vector[3], 
+                                                   category = category.names, ind = FALSE, print.mode = print.mode, 
+                                                   sigdigs = sigdigs, ...)
+    }
+    if (7 == length(area.vector)) {
+      grob.list <- VennDiagram::draw.triple.venn(area1 = 0, 
+                                                 area2 = 0, area3 = 0, n12 = 0, n23 = 0, n13 = 0, 
+                                                 n123 = 0, category = category.names, ind = FALSE, 
+                                                 list.order = 1:3, print.mode = print.mode, sigdigs = sigdigs, 
+                                                 area.vector = area.vector, direct.area = TRUE, 
+                                                 ...)
+    }
+    if (15 == length(area.vector)) {
+      grob.list <- VennDiagram::draw.quad.venn(area1 = 0, 
+                                               area2 = 0, area3 = 0, area4 = 0, n12 = 0, n13 = 0, 
+                                               n14 = 0, n23 = 0, n24 = 0, n34 = 0, n123 = 0, 
+                                               n124 = 0, n134 = 0, n234 = 0, n1234 = 0, category = category.names, 
+                                               ind = FALSE, print.mode = print.mode, sigdigs = sigdigs, 
+                                               area.vector = area.vector, direct.area = TRUE, 
+                                               ...)
+    }
+    if (31 == length(area.vector)) {
+      grob.list <- VennDiagram::draw.quintuple.venn(area1 = 0, 
+                                                    area2 = 0, area3 = 0, area4 = 0, area5 = 0, n12 = 0, 
+                                                    n13 = 0, n14 = 0, n15 = 0, n23 = 0, n24 = 0, 
+                                                    n25 = 0, n34 = 0, n35 = 0, n45 = 0, n123 = 0, 
+                                                    n124 = 0, n125 = 0, n134 = 0, n135 = 0, n145 = 0, 
+                                                    n234 = 0, n235 = 0, n245 = 0, n345 = 0, n1234 = 0, 
+                                                    n1235 = 0, n1245 = 0, n1345 = 0, n2345 = 0, n12345 = 0, 
+                                                    category = category.names, ind = FALSE, print.mode = print.mode, 
+                                                    sigdigs = sigdigs, area.vector = area.vector, 
+                                                    direct.area = TRUE, ...)
+    }
+  }
+  else {
+    if (force.unique) {
+      for (i in 1:length(x)) {
+        x[[i]] <- unique(x[[i]])
+      }
+    }
+    if ("none" == na) {
+      x <- x
+    }
+    else if ("stop" == na) {
+      for (i in 1:length(x)) {
+        if (any(is.na(x[[i]]))) {
+          flog.error("NAs in dataset", call. = FALSE, 
+                     name = "VennDiagramLogger")
+          stop("NAs in dataset", call. = FALSE)
+        }
+      }
+    }
+    else if ("remove" == na) {
+      for (i in 1:length(x)) {
+        x[[i]] <- x[[i]][!is.na(x[[i]])]
+      }
+    }
+    else {
+      flog.error("Invalid na option: valid options are \"none\", \"stop\", and \"remove\"", 
+                 name = "VennDiagramLogger")
+      stop("Invalid na option: valid options are \"none\", \"stop\", and \"remove\"")
+    }
+    if (0 == length(x) | length(x) > 5) {
+      flog.error("Incorrect number of elements.", call. = FALSE, 
+                 name = "VennDiagramLogger")
+      stop("Incorrect number of elements.", call. = FALSE)
+    }
+    if (1 == length(x)) {
+      list.names <- category.names
+      if (is.null(list.names)) {
+        list.names <- ""
+      }
+      grob.list <- VennDiagram::draw.single.venn(area = length(x[[1]]), 
+                                                 category = list.names, ind = FALSE, ...)
+    }
+    else if (2 == length(x)) {
+      grob.list <- VennDiagram::draw.pairwise.venn(area1 = length(x[[1]]), 
+                                                   area2 = length(x[[2]]), cross.area = length(intersect(x[[1]], 
+                                                                                                         x[[2]])), category = category.names, ind = FALSE, 
+                                                   print.mode = print.mode, sigdigs = sigdigs, ...)
+    }
+    else if (3 == length(x)) {
+      A <- x[[1]]
+      B <- x[[2]]
+      C <- x[[3]]
+      list.names <- category.names
+      nab <- intersect(A, B)
+      nbc <- intersect(B, C)
+      nac <- intersect(A, C)
+      nabc <- intersect(nab, C)
+      grob.list <- VennDiagram::draw.triple.venn(area1 = length(A), 
+                                                 area2 = length(B), area3 = length(C), n12 = length(nab), 
+                                                 n23 = length(nbc), n13 = length(nac), n123 = length(nabc), 
+                                                 category = list.names, ind = FALSE, list.order = 1:3, 
+                                                 print.mode = print.mode, sigdigs = sigdigs, ...)
+    }
+    else if (4 == length(x)) {
+      A <- x[[1]]
+      B <- x[[2]]
+      C <- x[[3]]
+      D <- x[[4]]
+      list.names <- category.names
+      n12 <- intersect(A, B)
+      n13 <- intersect(A, C)
+      n14 <- intersect(A, D)
+      n23 <- intersect(B, C)
+      n24 <- intersect(B, D)
+      n34 <- intersect(C, D)
+      n123 <- intersect(n12, C)
+      n124 <- intersect(n12, D)
+      n134 <- intersect(n13, D)
+      n234 <- intersect(n23, D)
+      n1234 <- intersect(n123, D)
+      grob.list <- VennDiagram::draw.quad.venn(area1 = length(A), 
+                                               area2 = length(B), area3 = length(C), area4 = length(D), 
+                                               n12 = length(n12), n13 = length(n13), n14 = length(n14), 
+                                               n23 = length(n23), n24 = length(n24), n34 = length(n34), 
+                                               n123 = length(n123), n124 = length(n124), n134 = length(n134), 
+                                               n234 = length(n234), n1234 = length(n1234), category = list.names, 
+                                               ind = FALSE, print.mode = print.mode, sigdigs = sigdigs, 
+                                               ...)
+    }
+    else if (5 == length(x)) {
+      A <- x[[1]]
+      B <- x[[2]]
+      C <- x[[3]]
+      D <- x[[4]]
+      E <- x[[5]]
+      list.names <- category.names
+      n12 <- intersect(A, B)
+      n13 <- intersect(A, C)
+      n14 <- intersect(A, D)
+      n15 <- intersect(A, E)
+      n23 <- intersect(B, C)
+      n24 <- intersect(B, D)
+      n25 <- intersect(B, E)
+      n34 <- intersect(C, D)
+      n35 <- intersect(C, E)
+      n45 <- intersect(D, E)
+      n123 <- intersect(n12, C)
+      n124 <- intersect(n12, D)
+      n125 <- intersect(n12, E)
+      n134 <- intersect(n13, D)
+      n135 <- intersect(n13, E)
+      n145 <- intersect(n14, E)
+      n234 <- intersect(n23, D)
+      n235 <- intersect(n23, E)
+      n245 <- intersect(n24, E)
+      n345 <- intersect(n34, E)
+      n1234 <- intersect(n123, D)
+      n1235 <- intersect(n123, E)
+      n1245 <- intersect(n124, E)
+      n1345 <- intersect(n134, E)
+      n2345 <- intersect(n234, E)
+      n12345 <- intersect(n1234, E)
+      grob.list <- VennDiagram::draw.quintuple.venn(area1 = length(A), 
+                                                    area2 = length(B), area3 = length(C), area4 = length(D), 
+                                                    area5 = length(E), n12 = length(n12), n13 = length(n13), 
+                                                    n14 = length(n14), n15 = length(n15), n23 = length(n23), 
+                                                    n24 = length(n24), n25 = length(n25), n34 = length(n34), 
+                                                    n35 = length(n35), n45 = length(n45), n123 = length(n123), 
+                                                    n124 = length(n124), n125 = length(n125), n134 = length(n134), 
+                                                    n135 = length(n135), n145 = length(n145), n234 = length(n234), 
+                                                    n235 = length(n235), n245 = length(n245), n345 = length(n345), 
+                                                    n1234 = length(n1234), n1235 = length(n1235), 
+                                                    n1245 = length(n1245), n1345 = length(n1345), 
+                                                    n2345 = length(n2345), n12345 = length(n12345), 
+                                                    category = list.names, ind = FALSE, print.mode = print.mode, 
+                                                    sigdigs = sigdigs, ...)
+    }
+    else {
+      flog.error("Invalid size of input object", name = "VennDiagramLogger")
+      stop("Invalid size of input object")
+    }
+  }
+  if (length(x) == 2 & !is.null(total.population) & hyper.test) {
+    fisher.mat <- matrix(c(
+      total.population-length(union(x[[1]],x[[2]])),
+      length(setdiff(x[[1]],x[[2]])),
+      length(setdiff(x[[2]],x[[1]])),
+      length(intersect(x[[1]],x[[2]]))),nrow=2
+    )
+    t <- fisher.test(fisher.mat)
+    
+    if (is.null(sub)) {
+      sub = paste0("Hyper.test p = ", signif(t[[1]], digits = 4), "\n OR= ",signif(t[[3]],digits = 4))
+    }
+    else {
+      sub = paste0(sub, ",Hyper.test p = ", signif(t[[1]], digits = 4), "\n OR= ",signif(t[[3]],digits = 4))
+    }
+  }
+  if (!is.null(sub)) {
+    grob.list <- add.title(gList = grob.list, x = sub, pos = sub.pos, 
+                           fontface = sub.fontface, fontfamily = sub.fontfamily, 
+                           col = sub.col, cex = sub.cex)
+  }
+  if (!is.null(main)) {
+    grob.list <- add.title(gList = grob.list, x = main, pos = main.pos, 
+                           fontface = main.fontface, fontfamily = main.fontfamily, 
+                           col = main.col, cex = main.cex)
+  }
+  if (!is.null(filename)) {
+    current.type <- getOption("bitmapType")
+    # if (length(grep("Darwin", Sys.info()["sysname"]))) {
+    #   options(bitmapType = "quartz")
+    # }
+    # else {
+    #   options(bitmapType = "cairo")
+    # }
+    if ("tiff" == imagetype) {
+      tiff(filename = filename, height = height, width = width, 
+           units = units, res = resolution, compression = compression)
+    }
+    else if ("pdf" == imagetype) {
+      pdf(file =  filename, height = height, width = width)
+    }
+    else if ("png" == imagetype) {
+      png(filename = filename, height = height, width = width, 
+          units = units, res = resolution)
+    }
+    else if ("svg" == imagetype) {
+      svg(filename = filename, height = height, width = width)
+    }
+    else {
+      flog.error("You have misspelled your 'imagetype', please try again", 
+                 name = "VennDiagramLogger")
+      stop("You have misspelled your 'imagetype', please try again")
+    }
+    grid.draw(grob.list)
+    dev.off()
+    options(bitmapType = current.type)
+    return(1)
+  }
+  return(grob.list)
+}
+
+plot_GO_fortified <-function(formula_res,showCategory = 10){
+  gdata <- fortify(formula_res,showCategory = showCategory) %>% filter(pvalue < 0.05) %>% 
+  mutate(log.FoldEnrichment =log(parse_ratio(GeneRatio)/ parse_ratio(BgRatio)))
+
+g <- ggplot(data=gdata,aes(x=log.FoldEnrichment,Description))+
+  geom_point(aes(size=GeneRatio,color=pvalue))+
+#  geom_text(aes(label=geneID,))+
+#  annotate(geom = "text",label=formula_res_hubgene_LRS_GO$geneID)+
+  facet_grid(.~factor(Cluster))+
+  scale_color_gradient(low = "#ff0000",high = "#0000ff")+
+  labs(x="log(FoldEnrichment)",y="GO Term",size="GeneRatio",color="p.adjust")+
+  scale_y_discrete(labels = function(x) stringr::str_wrap(x,width = 40))+
+  scale_x_continuous(limits = c(0,max(gdata$log.FoldEnrichment)))+
+  theme_bw()+theme(axis.text.x = element_text(angle = 60,hjust = 1),panel.grid.major.x   = element_blank())
+
+}
+
+
+```
+
+```{r samplelist}
+# note: V3 included
+samplelist <- c(
+      "C1","C2","C3",
+      "L1","L2","L3",
+      "V1","V2","V3",
+      "C1-N","L1-N","V1-N")
+
+names(samplelist) <- samplelist
+
+sample_info <- data.table::fread("../../../LibInfo.txt",sep = "\t")
+sample_info$lib_id_2 <- sub(pattern = "-",replacement = "_",x = sample_info$lib_id)
+
+```
+
+
+
+```{r   contact.matrx combined orientation}
+
+contact.sample.matrx <- lapply(samplelist,FUN = function(x){
+ dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/"
+data <- data.table::fread(paste0(dir,x,"_R2_virus-virus.entire.cdt.gz"),header = T,sep = "\t")
+data2 <- as.data.frame(data[2:3002,c(2,4:3004)],row.names = data$COL2[2:3002])
+data3 <- data2 %>% reshape2::melt(id.vars="COL2",value.name="count") %>%
+  type.convert() 
+data3 <- data3 %>% mutate(bin1 = 100*as.integer(pmin(variable,COL2)/100),bin2=100*as.integer(pmax(variable,COL2)/100) )%>% group_by(bin1,bin2) %>% summarise(count = 10*sum(count)) %>% mutate(sample=x)
+}) %>% bind_rows() 
+saveRDS(contact.sample.matrx,file = "contact.sample.matrx.combined.long.rds",compress = "gzip")
+contact.sample.matrx <- readRDS("contact.sample.matrx.combined.long.rds")
+contact.sample.matrx.wide <-  reshape2::dcast(data = contact.sample.matrx,formula = bin1+bin2~sample,value.var = "count",fill = 0)
+row.names(contact.sample.matrx.wide) <- paste(contact.sample.matrx.wide$bin1,contact.sample.matrx.wide$bin2,sep="_")
+saveRDS(contact.sample.matrx,file = "contact.sample.matrx.combined.wide.rds",compress = "gzip")
+
+```
+
+```{r}
+raw.data <- data.frame(contact.sample.matrx.wide[,3:14])
+colnames(raw.data) <- sub(x = colnames(raw.data),replacement = "_",pattern = "\\.")
+```
+
+
+
+```{r make DESeq compare}
+library(DESeq2)
+#compare samples 
+Lig_samplelist <- c(
+      "C1","C2","C3",
+      "L1","L2","L3",
+      "V1","V2","V3"
+      )
+
+names(Lig_samplelist) <- Lig_samplelist
+countData <- lapply(Lig_samplelist,FUN = function(x){
+  res <- data.frame(subset.data.frame(raw.data,select = x))
+}) %>% bind_cols()
+
+ keep <- rowSums(edgeR::cpm(countData)>10) >= 3
+summary(keep)
+pdf("kept.logcpm.Lig.sample.pdf")
+boxplot(log10(1+edgeR::cpm(countData[keep,])))
+dev.off()
+countData.kept <- data.frame(countData[keep,],row.names = row.names(countData)[keep])
+
+summary(keep)
+colSums(countData[keep,])/colSums(countData)
+
+countData.kept <- apply(countData.kept, 1, as.integer) %>% as.data.frame()
+
+## prepare sample/lib information
+colData <- lapply(colnames(countData.kept),FUN = function(x){
+  res <- data.frame(lib=x,
+                    sample=as.character(sample_info$group[sample_info$lib_id_2 ==x]),
+                    ligase= as.character(sample_info$ligase[sample_info$lib_id_2 ==x])
+                    )
+}) %>% bind_rows()
+dds <- DESeqDataSetFromMatrix(countData = countData.kept,
+                              colData   = colData,
+                              design    = ~sample) %>% DESeq
+rownames(dds) <- row.names(countData.kept) <- row.names(raw.data)[keep]
+saveRDS(dds,file = "dds.rds",compress = "gzip")
+dds <- readRDS("dds.rds")
+
+```
+
+```{r}
+
+read_dds_compareFC_baseMean <- function(dds="dds 1 1 .rds"){
+  library(DESeq2)
+  dds <- readRDS(dds)
+deseq_LvsC <- results(dds,contrast = c("sample","lysate","cell"))
+deseq_VvsC <- results(dds,contrast = c("sample","virion","cell"))
+deseq_VvsL <- results(dds,contrast = c("sample","virion","lysate"))
+
+
+# FC_compare <- data.frame(contact = row.names(dds),
+#                          LvsC = ifelse(deseq_LvsC@listData$padj < 0.05,deseq_LvsC@listData$log2FoldChange,0),
+#                          VvsC = ifelse(deseq_VvsC@listData$padj < 0.05,deseq_VvsC@listData$log2FoldChange,0),
+#                          VvsL = ifelse(deseq_VvsL@listData$padj < 0.05,deseq_VvsL@listData$log2FoldChange,0)) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
+#   tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+FC_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$log2FoldChange,
+                         VvsC = deseq_VvsC@listData$log2FoldChange,
+                         VvsL = deseq_VvsL@listData$log2FoldChange) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+baseMean_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$baseMean,
+                         VvsC = deseq_VvsC@listData$baseMean,
+                         VvsL = deseq_VvsL@listData$baseMean
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="baseMean") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+
+baseMean_compare <- baseMean_compare %>% mutate(log2FC = FC_compare$log2FC)
+}
+
+baseMean_FC_compare <- read_dds_compareFC_baseMean(dds = "dds.rds")
+
+
+```
+
+```{r basic statistics}
+
+DI <- lapply(c("VvsL", "VvsC"), function(x) {
+  data <- baseMean_FC_compare %>% filter(compare ==x ) %>% filter(log2FC > 1 )
+  pair <- paste(data$bin1,data$bin2,sep="_")
+})
+names(DI) <- c("VvsL", "VvsC")
+
+Venn.diagram2(x=DI,filename = "DI.up.venn_2.pdf",col=c("#cc6666","#33cc66"))
+
+
+DI <- lapply(c("VvsL", "VvsC"), function(x) {
+  data <- baseMean_FC_compare %>% filter(compare ==x ) %>% filter(log2FC < -1 )
+  pair <- paste(data$bin1,data$bin2,sep="_")
+})
+names(DI) <- c("VvsL", "VvsC")
+
+Venn.diagram2(x=DI,filename = "DI.down.venn_2.pdf",col=c("#cc6666","#33cc66"))
+
+
+
+
+```
+
+
+
+```{r}
+gdata <- data.frame(VvsL=baseMean_FC_compare$log2FC[baseMean_FC_compare$compare=="VvsL"],
+                    VvsC=baseMean_FC_compare$log2FC[baseMean_FC_compare$compare=="VvsC"],
+                    LvsC=baseMean_FC_compare$log2FC[baseMean_FC_compare$compare=="LvsC"]) %>% filter(any(VvsL !=0,VvsL!=0,LvsC!=0))
+
+pdf("logFC compare1.pdf",useDingbats = F)
+ggplot(gdata,aes(LvsC,VvsC))+
+  geom_point()+
+  ggpubr::stat_cor()+
+  theme_bw()
+dev.off()
+pdf("logFC compare2.pdf",useDingbats = F)
+ggplot(gdata,aes(VvsL,VvsC))+
+  geom_point()+
+  ggpubr::stat_cor()+
+  theme_bw()
+dev.off()
+
+ggpubr::ggarrange(plotlist = list(p1,p2,p3),nrow = 1,ncol = 3,file="logFC compare.pdf")
+```
+
+
+
+
+```{r export cdt}
+
+export_cdt <- function(data= baseMean_FC_compare,value.var = "log2FC"){
+  levels <- levels(factor(data$compare))
+cdt<-  lapply(levels,FUN = function(x){
+
+  data <- data %>% filter(compare == x) 
+  
+  data <- data.frame(data)
+
+  data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (0:300)*100),
+                               bin2=factor(data$bin2,levels = (300:0)*100),
+                               value.var= data[[value.var]]) 
+  
+  d <- dcast.data.table(data =data.table,formula = bin2~bin1,fill = 0,drop = F)
+
+
+d1 <- cbind(data.frame(COL_1 =d$bin2,COL_2=d$bin2,GWEIGHT=1),d[,2:ncol(d)]) %>% type.convert()
+d2 <- rbind(c("EWEIGHT",rep(1,ncol(d1)-1)),d1)
+
+data.table::fwrite(d2,file=paste0(x,"_",".cdt"),sep = "\t",quote = F)
+
+})
+}
+
+ export_cdt(data= baseMean_FC_compare,value.var = "log2FC")
+
+ x <- levels(factor(baseMean_FC_compare$compare))[[1]]
+```
+
+
+
+```{r}
+normalized_counts <- DESeq2::counts(dds, normalized=TRUE) 
+```
+
+
+```{r}
+CDS.anno <- data.table::fread("/Users/yan/Documents/scientific/cronovirus/genome_analysis/SARS2.Narry.Annotation.txt")
+```
+
+# plot Art
+
+
+```{r}
+plot_arc_DI2 <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter(bin1 != bin2)
+  gdata <- gdata %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down"))
+  
+  g <- ggplot(gdata,aes(x=bin1,xend=bin2,y=0,yend=0,color=direction))+
+    geom_curve(curvature = 0.25)+
+    scale_x_continuous(breaks = c(range,anno$start),limits = range,minor_breaks = NULL)+
+    scale_y_continuous(limits = c(-1,0))+
+    facet_grid(direction~.)+
+    labs(title = x)+
+    scale_color_manual(values = c("up"="#dd3300","down"="#0033dd"))+
+    theme_bw()+theme(axis.text = element_blank())
+  })
+}
+
+plotlist = plot_arc_DI2( data =baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 10,anno = CDS.anno,range = c(0,30000) )
+
+pdf("Arc_comapre_groups2_logFC1_basemean100.pdf",height = 10)
+ggpubr::ggarrange(plotlist = plotlist,ncol = 1,nrow = 3)
+dev.off()
+
+plotlist = plot_arc_DI2( data =baseMean_FC_compare,logFC.cutoff = 5,baseMean_cuttoff = 10,anno = CDS.anno,range = c(0,30000) )
+pdf("Arc_comapre_groups2_logFC5_basemean10.pdf",height = 10)
+ggpubr::ggarrange(plotlist = plotlist,ncol = 1,nrow = 3)
+dev.off()
+
+```
+
+
+
+
+```{r compare loop length of differential interaction}
+plot_looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter( bin1 != bin2) 
+  gdata <- gdata  %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down")) %>% mutate(loop_len = abs(bin2-bin1)) 
+ # gdata <- gdata %>%  group_by(direction,loop_len) %>% summarise(n=n()) %>% mutate(compare=x) 
+  }) %>% bind_rows()
+
+    g <- ggplot(plot_list,aes(x=loop_len,fill=factor(direction,levels=c("up","down"))))+
+    geom_histogram(bins = 50)+
+    facet_grid(.~factor(compare,levels = c("LvsC","VvsL","VvsC")))+
+    
+    scale_x_continuous(trans = "log10")+
+   # scale_y_continuous(trans = "log10")+
+    labs(x="spanning of interactions",y="No. of interactions",fill="differential interaction")+
+    scale_fill_manual(values = c("up"="#ff3333","down"="#3399dd"))+
+    theme_bw()
+
+}
+
+pdf("comapre_DI_looplen_histogram_FC1.pdf",height = 5,width = 10)
+print(plot_looplen_DI(logFC.cutoff = 1,data = baseMean_FC_compare,baseMean_cuttoff = 10))
+dev.off()
+
+# boxplot compare
+
+Looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter( bin1 != bin2) 
+  gdata <- gdata  %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down")) %>% mutate(loop_len = abs(bin2-bin1)) 
+ # gdata <- gdata %>%  group_by(direction,loop_len) %>% summarise(n=n()) %>% mutate(compare=x) 
+  }) %>% bind_rows()
+
+}
+gdata <- Looplen_DI(logFC.cutoff = 1,data = baseMean_FC_compare,baseMean_cuttoff = 10)
+
+g <- ggplot(gdata,aes(x=factor(direction,levels=c("up","down")),y=loop_len))+
+ # geom_violin(aes(color=compare))+
+  geom_dotplot(aes(fill=direction),color="#ffffff",binaxis = "y",width = 0.01,dotsize = 1,stackdir = "center",binwidth = 200)+
+  #geom_jitter(aes(fill=direction),stroke=0,height = 0)+
+    ggsignif::geom_signif(comparisons = list(c("up", "down")),test = 'ks.test',
+                        map_signif_level = c("***" = 0.001, "**" = 0.01, "*" =0.05),
+                        step_increase = 0.1)+
+  facet_grid(.~factor(compare,levels = c("LvsC","VvsL","VvsC")))+
+  
+  scale_fill_manual(values = col_DE)+
+  #scale_y_log10()+
+  labs(y="spanning of interactions")+
+  theme_bw()
+
+pdf("comapre_DI_looplen_dotplot_FC1'.ai",useDingbats = F,height = 5,width = 10)
+print(g)
+dev.off()
+
+
+p <- ecdf(x = gdata$loop_len[(gdata$direction=="up")&(gdata$compare=="VvsC")])
+d <- p(gdata$loop_len[(gdata$direction=="up")&(gdata$compare=="VvsC")]) %>% as.data.frame()
+
+ks.test(x = gdata$loop_len[(gdata$direction=="up")&(gdata$compare=="VvsC")],y  = gdata$loop_len[(gdata$direction=="down")&(gdata$compare=="VvsC")])
+
+
+```
+
+
+# sgRNA involved interaction is weakend
+```{r}
+plot_looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter( bin1 != bin2) 
+  gdata <- gdata  %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down")) %>% mutate(loop_len = abs(bin2-bin1)) 
+  gdata <- gdata %>% mutate(
+    loop_range = cut(gdata$loop_len,breaks = c(0,100,10000,20000,30000)),
+    Anchor1 = cut(gdata$bin1,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")),
+    Anchor2 = cut(gdata$bin2,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")))
+  gdata <- gdata %>%
+    group_by(direction,Anchor1,loop_range) %>% summarise(n=n())
+  
+  g <- ggplot(gdata,aes(fill=Anchor1,y=n,x=factor(direction,levels = c("up","down"))))+
+    geom_bar(stat = "identity")+
+  #  facet_grid(.~Anchor2)+
+   # scale_x_continuous(trans = "log10")+
+    #scale_y_continuous(trans = "log10")+
+    labs(title = x,fill="RNA type")+
+   # scale_fill_manual(values = c("up"="#ff3333","down"="#3399dd"))+
+    scale_fill_manual(values = c("gRNA"="#ff3333","sgRNA"="#3399dd"))+
+    theme_bw()
+  })
+}
+
+pdf("comapre_DI_different_Anchor1_type.pdf",height = 5)
+ggpubr::ggarrange(plotlist = plot_looplen_DI(logFC.cutoff = 1,data = baseMean_FC_compare,baseMean_cuttoff = 10),ncol = 3,nrow = 1,common.legend = T)
+dev.off()
+```
+
+
+
+# sgRNA-sgRNA involved interaction is weakend
+```{r}
+
+plot_looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter( bin1 != bin2)
+  gdata <- gdata  %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down")) %>% mutate(loop_len = abs(bin2-bin1)) 
+  gdata <- gdata %>% mutate(
+    loop_range = cut(gdata$loop_len,breaks = c(0,1000,20000,30000)),
+    Anchor1 = cut(gdata$bin1,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")),
+    Anchor2 = cut(gdata$bin2,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")))
+  gdata <- gdata %>% mutate(pair_type= paste(gdata$Anchor1,gdata$Anchor2,sep="-")) %>%
+   
+    group_by(direction,pair_type,loop_range) %>% summarise(n=n()) %>% mutate(compare=x)
+  }) %>% bind_rows()
+
+    # g <- ggplot(plot_list,aes(x=pair_type,y=n,fill=factor(direction,levels = c("up","down"))))+
+  #   geom_bar(stat = "identity",position = "dodge")+
+  #   facet_grid(.~factor(compare,levels = c("VvsC","LvsC","VvsL")))+
+  #  # scale_x_continuous(trans = "log10")+
+  #   #scale_y_continuous(trans = "log10")+
+  #   labs(fill="interaction change",y="No. of loops")+
+  #   scale_fill_manual(values = c("up"="#ff3333","down"="#3399dd"))+
+  #   theme_bw()+theme(axis.text.x = element_text(angle = 60,hjust = 1))
+  
+    g <- ggplot(plot_list,aes(fill=pair_type,y=n,x=factor(direction,levels = c("up","down"))))+
+    geom_bar(stat = "identity")+
+    facet_grid(.~factor(compare,levels = c("LvsC","VvsL","VvsC")))+
+    labs(x="interaction change",y="No. of loops")+
+   scale_fill_manual(values = c("gRNA-gRNA"="#ff6666","gRNA-sgRNA"="#00cc33","sgRNA-sgRNA"="#6699ff"))+
+    theme_bw()+theme(axis.text.x = element_text(angle = 60,hjust = 1))
+  
+}
+
+pdf("comapre_DI_different_pair_type_2.pdf",height = 5)
+print(plot_looplen_DI(logFC.cutoff = 1,data = baseMean_FC_compare,baseMean_cuttoff = 10))
+dev.off()
+
+```
+
+
+
+```{r}
+
+plot_looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0, loopRange=c(0,500)){
+  compares <- levels(factor(data$compare))
+  plot_list <- lapply(compares, function(x){
+  gdata <- data %>% filter(compare == x) %>% filter( bin1 != bin2) 
+  
+  gdata <- gdata  %>% filter(abs(log2FC) > logFC.cutoff) %>% filter(baseMean > baseMean_cuttoff) %>% mutate(direction = ifelse(log2FC >0 ,"up","down")) %>% filter((abs(bin2-bin1) > loopRange[1]) &(abs(bin2-bin1) < loopRange[2] ))
+  
+  gdata <- gdata %>% mutate(
+    Anchor1 = cut(gdata$bin1,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")),
+    Anchor2 = cut(gdata$bin2,breaks = c(0,21560,30000),include.lowest = T,labels = c("gRNA","sgRNA")))
+  gdata <- gdata %>% mutate(pair_type= paste(gdata$Anchor1,gdata$Anchor2,sep="-")) %>%
+   
+    group_by(direction,pair_type) %>% summarise(n=n()) %>% mutate(compare=x)
+  }) %>% bind_rows()
+
+  
+  g <- ggplot(plot_list,aes(fill=pair_type,y=n,x=factor(direction,levels = c("up","down"))))+
+    geom_bar(stat = "identity")+
+    facet_grid(.~factor(compare,levels = c("LvsC","VvsL","VvsC")))+
+    labs(x="interaction change",y="No. of loops")+
+   # scale_y_continuous(limits = c(0,500))+
+   scale_fill_manual(values = c("gRNA-gRNA"="#ff6666","gRNA-sgRNA"="#00cc33","sgRNA-sgRNA"="#6699ff"))+
+    theme_bw()+theme(axis.text.x = element_text(angle = 60,hjust = 1))
+  
+}
+
+pdf("comapre_DI_different_pair_type<500bp.pdf",height = 5,width = 6)
+print(plot_looplen_DI(data = baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 10,loopRange =  c(0,500)))
+dev.off()
+
+pdf("comapre_DI_different_pair_type_500~1000bp.pdf",height = 5,width = 6)
+print(plot_looplen_DI(data = baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 10,loopRange = c(500,1000)))
+dev.off()
+
+pdf("comapre_DI_different_pair_type_1000~20000bp.pdf",height = 5,width = 6)
+print(plot_looplen_DI(data = baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 0,loopRange = c(1000,20000)))
+dev.off()
+
+
+pdf("comapre_DI_different_pair_type_1000~10000bp.pdf",height = 5,width = 6)
+print(plot_looplen_DI(data = baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 10,loopRange = c(1000,10000)))
+dev.off()
+
+pdf("comapre_DI_different_pair_type_>10000bp.pdf",height = 5,width = 6)
+print(plot_looplen_DI(data = baseMean_FC_compare,logFC.cutoff = 1,baseMean_cuttoff = 10,loopRange = c(10000,30000)))
+dev.off()
+
+```
+
+
+# pick TRS-L interactions
+
+```{r}
+TRS_L_compareFC <- function(dds="dds.rds"){
+  
+  dds <- readRDS(dds)
+  deseq_LvsC <- results(dds,contrast = c("sample","lysate","cell"))
+deseq_VvsC <- results(dds,contrast = c("sample","virion","cell"))
+deseq_VvsL <- results(dds,contrast = c("sample","virion","lysate"))
+
+DES_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$log2FoldChange,
+                         VvsC = deseq_VvsC@listData$log2FoldChange,
+                         VvsL = deseq_VvsL@listData$log2FoldChange
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+baseMean_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$baseMean,
+                         VvsC = deseq_VvsC@listData$baseMean,
+                         VvsL = deseq_VvsL@listData$baseMean
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="baseMean") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+padj_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$padj,
+                         VvsC = deseq_VvsC@listData$padj,
+                         VvsL = deseq_VvsL@listData$padj
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="padj") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+baseMean_compare <- baseMean_compare %>% mutate(log2FC = DES_compare$log2FC,padj= padj_compare$padj)
+baseMean_compare <- baseMean_compare %>% filter((bin1 <100))
+}
+
+TRSL_compare <- TRS_L_compareFC("dds.rds")
+
+plot_list <- lapply(c("VvsC","VvsL","LvsC"),function(c){
+gdata <- TRSL_compare[(TRSL_compare$compare==c)&(TRSL_compare$bin1 < 100)&(TRSL_compare$baseMean > 10),]
+
+gdata$log2FC[gdata$padj > 0.05] =0
+gdata$log2FC[abs(gdata$log2FC) < 1] =0
+
+
+ p <-  ggplot(gdata,aes(bin2,bin1))+
+  geom_tile(aes(fill=log2FC))+
+   scale_x_continuous(breaks = c(0,CDS.anno$start,30000))+
+ scale_fill_gradient2(midpoint = 0,limits=c(-6,6),low = "#0000cc",high = "#cc0000",mid = "#ffffff")+
+   labs(title = c)+
+  theme_bw()+theme(panel.grid = element_blank())
+})
+
+
+pdf("TRS_L interaction_DE_test.pdf")
+ggpubr::ggarrange(plotlist = plot_list,ncol = 1,nrow = 4,common.legend = T)
+dev.off()
+
+
+```
+
+
+```{r export zoomeed-in cdt}
+# pick FSE
+export_cdt_zoomedin <- function(dds="dds.rds",value.var = "log2FC",bin1cut=c(0,30000),bin2cut = c(30000,0)){
+  
+  
+   dds <- readRDS(dds)
+  deseq_LvsC <- results(dds,contrast = c("sample","lysate","cell"))
+deseq_VvsC <- results(dds,contrast = c("sample","virion","cell"))
+deseq_VvsL <- results(dds,contrast = c("sample","virion","lysate"))
+
+DES_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$log2FoldChange,
+                         VvsC = deseq_VvsC@listData$log2FoldChange,
+                         VvsL = deseq_VvsL@listData$log2FoldChange
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+baseMean_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$baseMean,
+                         VvsC = deseq_VvsC@listData$baseMean,
+                         VvsL = deseq_VvsL@listData$baseMean
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="baseMean") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+padj_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$padj,
+                         VvsC = deseq_VvsC@listData$padj,
+                         VvsL = deseq_VvsL@listData$padj
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="padj") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+data <- baseMean_compare %>% mutate(log2FC = DES_compare$log2FC,padj= padj_compare$padj)
+
+  
+  levels <- levels(factor(data$compare))
+cdt<-  lapply(levels,FUN = function(x){
+
+  data <- data %>% filter(compare == x) 
+  data <- data.frame(data)
+
+  data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (as.integer(bin1cut[1]/100):as.integer(bin1cut[2]/100))*100),
+                               bin2=factor(data$bin2,levels = (as.integer(bin2cut[1]/100):as.integer(bin2cut[2]/100))*100),
+                               value.var= data[[value.var]]) %>% na.omit()
+
+  d <- dcast.data.table(data =data.table,formula = bin2~bin1,fill = 0,drop = F)
+
+
+d1 <- cbind(data.frame(COL_1 =d$bin2,COL_2=d$bin2,GWEIGHT=1),d[,2:ncol(d)]) %>% type.convert()
+d2 <- rbind(c("EWEIGHT",rep(1,ncol(d1)-1)),d1)
+
+data.table::fwrite(d2,file=paste(x,bin1cut[1],bin1cut[2],bin2cut[1],bin2cut[2],".cdt",sep = "_"),sep = "\t",quote = F)
+
+})
+}
+
+export_cdt_zoomedin(dds="dds.rds",value.var = "log2FC",bin1cut = c(10000,15000),bin2cut=c(15000,10000))
+
+```
+
+```{r}
+plot_zoomed_deseq <- function(dds="dds.rds",value.var = "log2FC",bin1cut=c(0,30000),bin2cut = c(30000,0)){
+  
+dds <- readRDS(dds)
+deseq_LvsC <- results(dds,contrast = c("sample","lysate","cell"))
+deseq_VvsC <- results(dds,contrast = c("sample","virion","cell"))
+deseq_VvsL <- results(dds,contrast = c("sample","virion","lysate"))
+
+DES_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$log2FoldChange,
+                         VvsC = deseq_VvsC@listData$log2FoldChange,
+                         VvsL = deseq_VvsL@listData$log2FoldChange
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+baseMean_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$baseMean,
+                         VvsC = deseq_VvsC@listData$baseMean,
+                         VvsL = deseq_VvsL@listData$baseMean
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="baseMean") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+padj_compare <- data.frame(contact = row.names(dds),
+                         LvsC = deseq_LvsC@listData$padj,
+                         VvsC = deseq_VvsC@listData$padj,
+                         VvsL = deseq_VvsL@listData$padj
+                         ) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="padj") %>% 
+  tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
+
+data <- baseMean_compare %>% mutate(log2FC = DES_compare$log2FC,padj= padj_compare$padj) %>% filter((bin1 <= bin1cut[2])&(bin1 >= bin1cut[1])) %>% filter((bin2 <= bin2cut[2])&(bin2 >= bin2cut[1]))
+}
+
+
+compare_FSE <- plot_zoomed_deseq(dds = "dds.rds",bin1cut = c(11000,15000),bin2cut = c(11000,15000))
+  plot_list <- lapply(c("VvsC","VvsL","LvsC"),function(c){
+gdata <- compare_FSE[(compare_FSE$compare==c),]
+
+gdata$log2FC[gdata$padj > 0.05] =0
+gdata$log2FC[abs(gdata$log2FC) < 1] =0
+# gdata$log2FC[gdata$log2FC > 2] =2
+# gdata$log2FC[gdata$log2FC < -2] =-2
+
+ p <-  ggplot(gdata,aes(bin2,bin1))+
+  geom_tile(aes(fill=log2FC))+
+  # scale_x_continuous(breaks = c(0,CDS.anno$start,30000))+
+ scale_fill_gradient2(midpoint = 0,limits=c(-6,6),low = "#0000cc",high = "#cc0000",mid = "#ffffff")+
+   labs(title = c)+
+  theme_bw()+theme(panel.grid = element_blank(),aspect.ratio = 1)
+})
+ 
+pdf("FSE interaction_DE_compare.pdf",width = 12)
+ggpubr::ggarrange(plotlist = plot_list,ncol = 3,nrow = 1,common.legend = T)
+dev.off()
+```
