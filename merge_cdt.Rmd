@@ -1,0 +1,257 @@
+---
+title: "Untitled"
+author: "Yan"
+date: "2020/11/25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+```
+
+```{r useful functions}
+hash <- function(key,value){
+  hash <- value
+  names(hash) <- key
+  return( hash)
+}
+```
+
+```{r samplelist}
+
+dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/"
+
+samplelist <- c(
+      "L1","L2","L3",
+      "C1","C2","C3",
+      "V1","V2","V3",
+      "L1-N","C1-N","V1-N")
+
+names(samplelist) <- samplelist
+
+grouplist <- list(
+  C = c("C1", "C2", "C3"),
+  L = c("L1", "L2", "L3"),
+  V = c("V1", "V2", "V3"),
+  C_N = "C1-N",
+  L_N = "L1-N",
+  V_N = "V1-N"
+  )
+
+```
+
+
+```{r merge  contact matrix}
+
+merged.matrix <- lapply(grouplist,FUN = function(x){
+ dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/" 
+ 
+ cdt <- lapply(x, function(sample){
+data <- data.table::fread(paste0(dir,sample,"_R2_virus-virus.entire.cdt.gz"),header = T,sep = "\t")
+data2 <- as.data.frame(data[2:3002,c(2,4:3004)],row.names = data$COL2[2:3002]) 
+data3 <- data2 %>% reshape2::melt(id.vars="COL2",value.name="count") %>% type.convert() %>%
+  mutate(Arm5 = as.integer(variable/10)*10, Arm3 = as.integer(COL2/10)*10)
+   
+ }) %>% bind_rows() %>% group_by(Arm5,Arm3) %>% summarise(n=sum(count)) %>% mutate(group=(names(x)))
+
+
+})
+
+View(merged.matrix$C)
+saveRDS(merged.matrix,file = "merged.contact.matrix.RDS",compress = "gzip")
+merged.matrix <- readRDS("merged.contact.matrix.RDS")
+```
+
+
+```{r}
+x <- names(grouplist)[[1]]
+merged_cdt <- function(matrix= merged.matrix,value.var = "n"){
+  library(data.table)
+  
+  lapply(names(grouplist),FUN = function(x){
+  data <- matrix[[x]] %>% as.data.frame()
+  data.table <- data.table::data.table(Arm5=factor(data$Arm5,levels = (0:3000)*10),
+                               Arm3=factor(data$Arm3,levels = (3000:0)*10),
+                               n= data[[value.var]]) 
+  
+  d <- dcast.data.table(data =data.table,formula = Arm3~Arm5,fill = 0,drop = F,value.var=value.var)
+
+d1 <- cbind(data.frame(COL_1 =d$Arm3,COL_2=d$Arm3,GWEIGHT=1),d[,2:ncol(d)]) %>% type.convert()
+d2 <- rbind(c("EWEIGHT",rep(1,ncol(d1)-1)),
+            d1)
+
+data.table::fwrite(d2,file=paste0(x,"_merged",value.var,".cdt"),sep = "\t",quote = F)
+})
+}
+```
+
+```{r}
+merged_cdt ()
+```
+
+
+```{r}
+export_cdt <- function(data= merged.matrix,bin1cut=c(0,100),bin2cut=c(0,100),value.var="n"){
+  levels <- 
+cdt<-  lapply(names(data),FUN = function(x){
+
+  data <- data[[x]] %>% as.data.frame() %>% mutate(bin1=Arm5,bin2=Arm3)
+  
+  
+  data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (as.integer(bin1cut[1]/10):as.integer(bin1cut[2]/10))*10),
+                               bin2=factor(data$bin2,levels = (as.integer(bin2cut[2]/10):as.integer(bin2cut[1]/10))*10),
+                               value.var= 1e7*data[[value.var]]) %>% na.omit()
+  
+
+  d <- data.table::dcast.data.table(data =data.table,formula = bin2~bin1,fill = 0,drop = F)
+
+
+d1 <- cbind(data.frame(COL_1 =d$bin2,COL_2=d$bin2,GWEIGHT=1),d[,2:ncol(d)]) %>% type.convert()
+d2 <- rbind(c("EWEIGHT",rep(1,ncol(d1)-1)),d1)
+
+data.table::fwrite(d2,file=paste0(x,"merged_",bin1cut[1],"_",bin1cut[2],"_",bin2cut[1],"_",bin2cut[2],"_","rpm.cdt"),sep = "\t",quote = F)
+
+})
+}
+```
+
+```{r}
+export_cdt(bin1 = c(12000,15000),bin2 = c(12000,15000))
+```
+
+```{r}
+export_cdt(bin2 = c(0,100),bin1 = c(21400,22000))
+
+
+```
+
+```{r}
+library(readxl)
+COVID_Normalize <- read_excel("~/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/COVID Normalize.xlsx", 
+    sheet = "collaspe")
+
+Total_readCount <- COVID_Normalize$mappedReadCount 
+names(Total_readCount) <- COVID_Normalize$group
+```
+
+```{r}
+merged.matrix.cpm <- lapply(names(merged.matrix),function(x){
+  data <- merged.matrix[[x]] %>% as.data.frame() %>% mutate(
+    rpm = n/Total_readCount[x]
+  )
+})
+names(merged.matrix.cpm) <- names(grouplist)
+saveRDS(merged.matrix.cpm,file ="merged.matrix.cpm.rds",compress = "gzip" )
+merged.matrix.cpm <- readRDS("merged.matrix.cpm.rds")
+```
+
+
+```{r make ggplot heatmap}
+x <-"C"
+gdata <- merged.matrix.cpm <- lapply(names(merged.matrix.cpm),function(x){
+  data <- merged.matrix.cpm[[x]] %>% mutate(rpm_muta = ifelse(rpm> quantile(rpm,0.9),1e7*quantile(rpm,0.9),1e7*rpm))
+  rpm <- data.frame(Arm5=data$Arm5,Arm3=data$Arm3,rpm=data$rpm_muta,sample=x)
+})%>% bind_rows()
+
+p <- ggplot(gdata,aes(Arm5,Arm3,fill=rpm))+
+  geom_tile()+
+  facet_wrap("sample",nrow = 3,dir = "v")+
+  scale_fill_gradient(high = "#000000",low = "#ffffff")+
+  theme_bw()
+
+pdf("test.pdf")
+print(p)
+dev.off()
+```
+
+
+```{r}
+export_cdt_rpm <- function(data= merged.matrix,bin1cut=c(0,100),bin2cut=c(0,100),value.var="n",multiple=1e6){
+  levels <- 
+    cdt<-  lapply(names(data),FUN = function(x){
+      
+      data <- data[[x]] %>% as.data.frame() %>% mutate(bin1=Arm5,bin2=Arm3)
+      data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (as.integer(bin1cut[1]/10):as.integer(bin1cut[2]/10))*10),
+                                           bin2=factor(data$bin2,levels = (as.integer(bin2cut[2]/10):as.integer(bin2cut[1]/10))*10),
+                                           value.var= multiple*data[[value.var]]) %>% na.omit()
+      d <- data.table::dcast.data.table(data =data.table,formula = bin2~bin1,fill = 0,drop = F)
+      d1 <- cbind(data.frame(COL_1 =d$bin2,COL_2=d$bin2,GWEIGHT=1),d[,2:ncol(d)]) %>% type.convert()
+      d2 <- rbind(c("EWEIGHT",rep(1,ncol(d1)-1)),d1)
+      data.table::fwrite(d2,file=paste0(x,"merged_",bin1cut[1],"_",bin1cut[2],"_",bin2cut[1],"_",bin2cut[2],"_",value.var,".cdt"),sep = "\t",quote = F)
+    })
+}
+names(merged.matrix.cpm) <- names(grouplist)
+
+
+```
+
+```{r}
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,30000),bin2cut = c(0,30000),value.var = "rpm")
+```
+
+
+```{r}
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(12000,15000),bin2cut = c(12000,15000),value.var = "rpm")
+
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,300),bin2cut = c(29500,29870),value.var = "rpm")
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,200),bin2cut = c(29670,29870),value.var = "rpm")
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(29500,29870),bin2cut = c(29500,29870),value.var = "rpm")
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(28270,29870),bin2cut = c(28270,29870),value.var = "rpm")
+export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,300),bin2cut = c(0,300),value.var = "rpm")
+export_cdt_rpm(data = merged.matrix.cpm,bin2cut = c(0,100),bin1cut = c(21400,21800),value.var = "rpm")
+
+export_cdt_rpm(data = merged.matrix.cpm,bin2cut = c(0,100),bin1cut = c(25180,28480),value.var = "rpm")
+```
+
+```{r}
+export_gdata_rpm <- function(data= merged.matrix,bin1cut=c(0,100),bin2cut=c(0,100),value.var="n",multiple=1e6){
+  levels <- 
+    cdt<-  lapply(names(data),FUN = function(x){
+      
+      data <- data[[x]] %>% as.data.frame() %>% mutate(bin2=Arm5,bin1=Arm3) # 3'-5' chimeras
+      data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (as.integer(bin1cut[1]/10):as.integer(bin1cut[2]/10))*10),
+                                           bin2=factor(data$bin2,levels = (as.integer(bin2cut[2]/10):as.integer(bin2cut[1]/10))*10),
+                                           value.var= multiple*data[[value.var]]) %>% na.omit() %>% mutate(sample=x)
+ }) %>% bind_rows()
+}
+
+```
+
+
+```{r export CPM matrix for TRS-L interaction}
+CDS.anno <- data.table::fread("/Users/yan/Documents/scientific/cronovirus/genome_analysis/SARS2.Narry.Annotation.txt",sep = "\t",header = T)
+ggplot_CPM_matrix <- function(data = merged.matrix.cpm,bin1cut = c(0,100),bin2cut = c(21400,21800),value.var = "rpm",multiple = 1e7,name="TRSL_S_3-5chimeras.heatmap.pdf"){
+  gdata <- export_gdata_rpm(data = data,bin1cut = bin1cut,bin2cut = bin2cut,value.var = "rpm",multiple = 1e7)%>% type.convert()
+  p <-ggplot(gdata,aes(bin2,bin1))+
+    geom_tile(aes(fill=value.var))+
+    scale_fill_gradient(high = "#000000",low = "#ffffff")+
+   # scale_x_continuous(breaks = CDS.anno$start[4:11],labels = CDS.anno$name[4:11])+
+    facet_wrap(vars(factor(sample,levels = c("C","L","V","C_N","L_N","V_N"))),dir = "h",nrow = 2)+
+    #labs(fill="chimeric reads per 1million reads")+
+    theme_bw()+theme(axis.text.x = element_text(angle = 45,hjust = 1))
+  
+  pdf(name,width =7)
+  print(p)
+  dev.off()
+  
+}
+
+
+```
+
+```{r}
+ggplot_CPM_matrix(name ="TRSL_S_3-5chimeras.heatmap.pdf" )
+ggplot_CPM_matrix(bin2cut =c(25180,25580) ,name ="TRSL_ORF3a_3-5chimeras.heatmap.pdf" )
+ggplot_CPM_matrix(bin2cut =c(26020,26420) ,name ="TRSL_E_3-5chimeras.heatmap.pdf" )
+ggplot_CPM_matrix(bin2cut =c(26272,26672) ,name ="TRSL_M_3-5chimeras.heatmap.pdf" )
+ggplot_CPM_matrix(bin2cut =c(25180,28480) ,name ="TRSL_3a_N-5chimeras.heatmap.pdf" )
+
+ggplot_CPM_matrix(bin2cut =c(3800,4100) ,name ="TRSL_3.9K_3-5chimeras.heatmap.pdf" )
+ggplot_CPM_matrix(bin2cut =c(12150,12450) ,name ="TRSL_12.3K_3-5chimeras.heatmap.pdf" )
+```
+
+
+
