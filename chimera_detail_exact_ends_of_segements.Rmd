@@ -1,0 +1,289 @@
+---
+title: "Untitled"
+author: "Yan"
+date: "2020/11/11"
+output: html_document
+---
+This R script is to plot "line plots", related Figure 2E and S3D
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+```
+
+```{r useful functions}
+hash <- function(key,value){
+  hash <- value
+  names(hash) <- key
+  return( hash)
+}
+```
+
+```{r samplelist}
+
+dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/hyb_files/"
+
+samplelist <- c(
+      "L1","L2","L3",
+      "C1","C2","C3",
+      "V1","V2","V3",
+      "L1-N","C1-N","V1-N")
+
+names(samplelist) <- samplelist
+
+grouplist <- list(
+  C = c("C1", "C2", "C3"),
+  L = c("L1", "L2", "L3"),
+  V = c("V1", "V2", "V3"),
+  L_N = "L1-N",
+  C_N = "C1-N",
+  V_N = "V1-N"
+  )
+
+
+
+```
+
+
+
+```{r contact.matrx}
+
+Junc <- lapply(grouplist,FUN = function(group){
+  hyblist <- lapply(group, function(hybfile){
+    data <- data.table::fread(paste0(dir,hybfile,"_R2_comp_SARS-CoV-2_no_polyA_hybrids_ua.hyb.gz"),header = F,sep = "\t",select = c(2,5:8,11:14)) 
+    data <- data %>% mutate(overlap = 1 + pmin( data$V8, data$V14 ) -  pmax( data$V7, data$V13 ))
+    count <- data %>% mutate(is.overlap = cut(overlap,breaks = c(-30000,0,30000),include.lowest = T,labels = c("gap","overlap"))) %>% count(is.overlap) %>% mutate(sample=hybfile)
+  }) %>% bind_rows()
+
+}) %>% bind_rows
+
+```
+
+
+```{r}
+
+Hyb <- lapply(grouplist,FUN = function(group){
+  data <- lapply(group, function(hybfile){
+    data <- data.table::fread(paste0(dir,hybfile,"_R2_comp_SARS-CoV-2_no_polyA_hybrids_ua.hyb.gz"),header = F,sep = "\t",select = c(5:8,11:14)) }) %>% bind_rows()
+  
+  data <- data %>% mutate(overlap = 1 + pmin( data$V8, data$V14 ) -  pmax( data$V7, data$V13 )) %>% filter(overlap <0 ) 
+  
+  # data <- data %>% mutate(Arm5_start = ifelse(V8 < V13, pmin(V7,V13),pmax(V7,V13)),
+  #                         Arm5_end = ifelse(V8 < V13,pmin(V8,V14),pmax(V8,V14)) ,
+  #                         Arm5_start = ifelse(V8 < V13, pmax(V7,V13),pmin(V7,V13)),
+  #                         Arm5_end = ifelse(V8 < V13,pmax(V8,V14),pmin(V8,V14)) )
+}) 
+
+pick_interaction_fragments <- function(pair_bin1,pair_bin2,Hyb){
+  
+  plot_list1 <- lapply(names(Hyb),function(x){
+    data <- Hyb[[x]] %>% as.data.frame()
+    chim53_select <- (overlap_window(start1 = data$V7,end1 = data$V8,start2 = pair_bin1[1],end2 = pair_bin1[2]) >0)&(
+      overlap_window(start1 = data$V13,end1 = data$V14,start2 = pair_bin2[1],end2 = pair_bin2[2]) >0)
+    chim35_select <- (overlap_window(start1 = data$V7,end1 = data$V8,start2 = pair_bin2[1],end2 = pair_bin2[2]) >0)&(
+      overlap_window(start1 = data$V13,end1 = data$V14,start2 = pair_bin1[1],end2 = pair_bin1[2]) >0)
+    
+    tmp <- data[(chim53_select|chim35_select),]
+    
+    min1 <- min(pmin(tmp$V7,tmp$V13))
+    max1 <- max(pmin(tmp$V8,tmp$V14))
+   
+    min2 <- min(pmax(tmp$V7,tmp$V13))
+    max2 <- max(pmax(tmp$V8,tmp$V14))
+    
+    # for 3'-5' chimeras
+    
+    gdata <- data[chim35_select,] 
+
+   # gdata <- data.table::setorder(gdata,V14,-V8)
+    if(nrow(gdata)>100){
+      gdata <- data.table::setorder(gdata[sample(nrow(gdata),100),],V14,V7)
+    } else{
+      gdata <- data.table::setorder(gdata,V14,V7)
+    }
+    gdata$high=seq(from=1,to=nrow(gdata),by=1)
+    gdata <- type.convert(gdata)
+    p1 <- ggplot(data = gdata,aes(x=V7,xend=V8,y=high,yend=high))+
+      geom_segment(colour = "darkblue",aes(x=V7,xend=V8,y=high,yend=high))+
+       scale_x_continuous(limits = c(min2,max2))+
+      labs(title = "3'-5' chimeras")+
+      theme_classic()+
+      
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.line.y = element_blank(),axis.title.x = element_blank())
+    
+    p2 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V13,xend=V14,y=high,yend=high))+
+      labs(title = "3'-5' chimeras")+
+       scale_x_continuous(limits = c(min1,max1))+
+      theme_classic()+
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.title.x = element_blank())
+    
+    # for 5'-3' chimeras
+    gdata <- data[chim53_select,] 
+   # gdata <- data.table::setorder(gdata,V8)
+  #  gdata <- data.table::setorder(gdata,V8,-V13)
+    if(nrow(gdata)>100){
+      gdata <- data.table::setorder(gdata[sample(nrow(gdata),100),],V8,-V13)
+    } else{
+      gdata <- data.table::setorder(gdata,V8,-V13)
+    }
+    
+    gdata$high=seq(from=1,to=nrow(gdata),by=1)
+    p3 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V7,xend=V8,y=high,yend=high))+
+      labs(title = "5'-3' chimeras")+
+      scale_x_continuous(limits = c(min1,max1))+
+    #  scale_y_continuous(limits = c(0,200))+
+      theme_classic()+
+      
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.title.x = element_blank())
+    
+    p4 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V13,xend=V14,y=high,yend=high))+
+      labs(title = "5'-3' chimeras")+
+      scale_x_continuous(limits = c(min2,max2))+
+    #  scale_y_continuous(limits = c(0,200))+
+      theme_classic()+
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.line.y = element_blank(),axis.title.x = element_blank())
+    p <- ggpubr::ggarrange(plotlist = list(p2,p1,p3,p4),ncol = 2,nrow = 2)
+    
+    pdf(paste(pair_bin1[1],pair_bin1[2],pair_bin2[1],pair_bin2[2],x,".pdf",sep="_"))
+    print(p)
+    dev.off()
+  })
+  
+  
+}
+
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(21460,21560),Hyb = Hyb )
+
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(28200,28300),Hyb = Hyb )
+pick_interaction_fragments(pair_bin1 =c(0,200),pair_bin2 =  c(29800,30000),Hyb = Hyb )
+
+```
+
+
+```{r}
+ctrl_list <- c("C1","L1","V1","C1-N","L1-N","V1-N")
+
+Hyb_gmax20 <- lapply(ctrl_list,FUN = function(hybfile){
+  
+    data <- data.table::fread(paste0(dir,hybfile,"_R2_gmax20_comp_SARS-CoV-2_no_polyA_hybrids_ua.hyb.gz"),header = F,sep = "\t",select = c(5:8,11:14)) 
+   data <- data %>% mutate(overlap = 1 + pmin( data$V8, data$V14 ) -  pmax( data$V7, data$V13 )) %>% filter(overlap <0 ) 
+}) 
+names(Hyb_gmax20) <- paste0(ctrl_list,"_gmax20")
+saveRDS(Hyb_gmax20,file="Hyb_gmax20.rds")
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(28200,28300),Hyb =Hyb_gmax20 )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(21513,21613),Hyb =Hyb_gmax20 )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(26195,26295),Hyb =Hyb_gmax20 )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(12300,12400),Hyb =Hyb_gmax20 )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(12300,12400),Hyb =Hyb )
+
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3400,3500),Hyb =Hyb )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3400,3500),Hyb =Hyb_gmax20 )
+
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(29800,30000),Hyb =Hyb_gmax20 )
+pick_interaction_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(29800,30000),Hyb =Hyb )
+
+
+pick_interaction_fragments(pair_bin1 =c(12600,12800),pair_bin2 =  c(13400,13500),Hyb =Hyb )
+
+```
+```{r}
+pick_interaction_all_fragments <- function(pair_bin1,pair_bin2,Hyb){
+  
+  plot_list1 <- lapply(names(Hyb),function(x){
+    data <- Hyb[[x]] %>% as.data.frame()
+    chim53_select <- (overlap_window(start1 = data$V7,end1 = data$V8,start2 = pair_bin1[1],end2 = pair_bin1[2]) >0)&(
+      overlap_window(start1 = data$V13,end1 = data$V14,start2 = pair_bin2[1],end2 = pair_bin2[2]) >0)
+    chim35_select <- (overlap_window(start1 = data$V7,end1 = data$V8,start2 = pair_bin2[1],end2 = pair_bin2[2]) >0)&(
+      overlap_window(start1 = data$V13,end1 = data$V14,start2 = pair_bin1[1],end2 = pair_bin1[2]) >0)
+    
+    tmp <- data[(chim53_select|chim35_select),]
+    
+    min1 <- min(pmin(tmp$V7,tmp$V13))
+    max1 <- max(pmin(tmp$V8,tmp$V14))
+   
+    min2 <- min(pmax(tmp$V7,tmp$V13))
+    max2 <- max(pmax(tmp$V8,tmp$V14))
+    
+    # for 3'-5' chimeras
+    
+    gdata <- data[chim35_select,] 
+
+    gdata <- data.table::setorder(gdata,V14,V7)
+ 
+    gdata$high=seq(from=1,to=nrow(gdata),by=1)
+    gdata <- type.convert(gdata)
+    p1 <- ggplot(data = gdata,aes(x=V7,xend=V8,y=high,yend=high))+
+      geom_segment(colour = "darkblue",aes(x=V7,xend=V8,y=high,yend=high))+
+       scale_x_continuous(limits = c(min2,max2))+
+      labs(title = "3'-5' chimeras")+
+      theme_classic()+
+      
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.line.y = element_blank(),axis.title.x = element_blank())
+    
+    p2 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V13,xend=V14,y=high,yend=high))+
+      labs(title = "3'-5' chimeras")+
+       scale_x_continuous(limits = c(min1,max1))+
+      theme_classic()+
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.title.x = element_blank())
+    
+    # for 5'-3' chimeras
+    gdata <- data[chim53_select,] 
+     gdata <- data.table::setorder(gdata,V8,-V13)
+
+    
+    gdata$high=seq(from=1,to=nrow(gdata),by=1)
+    p3 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V7,xend=V8,y=high,yend=high))+
+      labs(title = "5'-3' chimeras")+
+      scale_x_continuous(limits = c(min1,max1))+
+    #  scale_y_continuous(limits = c(0,200))+
+      theme_classic()+
+      
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.title.x = element_blank())
+    
+    p4 <- ggplot(data = gdata)+
+      geom_segment(colour = "darkblue",aes(x=V13,xend=V14,y=high,yend=high))+
+      labs(title = "5'-3' chimeras")+
+      scale_x_continuous(limits = c(min2,max2))+
+    #  scale_y_continuous(limits = c(0,200))+
+      theme_classic()+
+      theme(axis.title.y = element_blank(),axis.ticks.y = element_blank(),panel.grid = element_blank(),axis.text.y = element_blank(),axis.line.y = element_blank(),axis.title.x = element_blank())
+    p <- ggpubr::ggarrange(plotlist = list(p2,p1,p3,p4),ncol = 2,nrow = 2)
+    
+    pdf(paste(pair_bin1[1],pair_bin1[2],pair_bin2[1],pair_bin2[2],x,"allFrag.pdf",sep="_"))
+    print(p)
+    dev.off()
+  })
+  
+  
+}
+```
+
+```{r}
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(28200,28300),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(28200,28300),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3500,4500),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3500,4500),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3800,4100),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(3800,4100),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(12200,12400),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(12200,12400),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(21000,22000),Hyb =Hyb)
+
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(12000,17000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(15000,16000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(15000,16000),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(5000,6000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(5000,6000),Hyb =Hyb)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(10000,15000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(15000,20000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(20000,25000),Hyb =Hyb_gmax20)
+pick_interaction_all_fragments(pair_bin1 =c(0,100),pair_bin2 =  c(25000,30000),Hyb =Hyb_gmax20)
+```
+
