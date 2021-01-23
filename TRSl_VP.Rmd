@@ -1,0 +1,150 @@
+---
+title: "Untitled"
+author: "Yan"
+date: "2020/11/26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+```
+
+```{r samplelist}
+
+dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/"
+
+samplelist <- c(
+      "L1","L2","L3",
+      "C1","C2","C3",
+      "V1","V2","V3",
+      "L1-N","C1-N","V1-N")
+
+names(samplelist) <- samplelist
+
+grouplist <- list(
+  C = c("C1", "C2", "C3"),
+  L = c("L1", "L2", "L3"),
+  V = c("V1", "V2", "V3"),
+  C_N = "C1-N",
+  L_N = "L1-N",
+  V_N = "V1-N"
+  )
+
+ctrl_list <- list(SylviRouskin="SRR12153162",Kim_DNB="SCV2_1_0",  C_N = "C1-N",
+  L_N = "L1-N",
+  V_N = "V1-N")
+
+
+g20_list <- list(C="C1_R2_gmax20",
+                 L="L1_R2_gmax20",
+                 V="V1_R2_gmax20",
+                 C_N="C1-N_R2_gmax20",
+                 L_N="L1-N_R2_gmax20",
+                 V_N="V1-N_R2_gmax20",
+                 Kim_DNB="SCV2_1_0_gmax20",
+                 SylviRouskin="SRR12153162_gmax20")
+
+```
+
+
+
+```{r}
+merge_matrix <- function(grouplist=grouplist){
+  
+  merged.matrix <- lapply(grouplist,FUN = function(x){
+    dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/" 
+    
+    cdt <- lapply(x, function(sample){
+      data <- data.table::fread(paste0(dir,sample,"_virus-virus.entire.cdt.gz"),header = T,sep = "\t")
+      data2 <- as.data.frame(data[2:3002,c(2,4:3004)],row.names = data$COL2[2:3002]) 
+      data3 <- data2 %>% reshape2::melt(id.vars="COL2",value.name="count") %>% type.convert() %>%
+        mutate(Arm5 = as.integer(variable/10)*10, Arm3 = as.integer(COL2/10)*10)
+    }) %>% bind_rows() %>% group_by(Arm5,Arm3) %>% summarise(n=sum(count)) %>% mutate(group=(names(x)))
+  })
+}
+
+```
+
+```{r}
+merged.contact.matrix_RNAseq <- merge_matrix(grouplist = ctrl_list)
+merged.contact.matrix_g20max <- merge_matrix(grouplist = g20_list)
+
+saveRDS(merged.matrix,file = "merged.contact.matrix.RDS",compress = "gzip")
+merged.contact.matrix <- readRDS("../merge_cdt/merged.contact.matrix.RDS")
+```
+
+```{r}
+VP <- function(bait=c(0,100),contact.matrix=merged.contact.matrix){
+  library(dplyr)
+  samples <- names(contact.matrix)
+  VP_gdata <- lapply(samples, function(x){
+    
+    data <- contact.matrix[[x]] 
+    baited <- data %>% filter(((Arm5 <= bait[2]) &(Arm5 >= bait[1]))|((Arm3 <= bait[2]) &(Arm3 >= bait[1]))) %>%
+      mutate(orientation = ifelse(Arm5 > Arm3, "3'-5'","5'-3'")) %>% mutate(bin1=pmin(Arm5,Arm3),bin2=pmax(Arm5,Arm3)) %>% mutate(
+        sample = x
+      )
+    
+  }) %>% bind_rows()}
+  
+TRSL_VP <- VP(bait = c(0,100),contact.matrix=merged.contact.matrix)
+RNAseq_VP <- VP(bait = c(0,100),contact.matrix=merged.contact.matrix_RNAseq)
+g20max_VP <- VP(bait = c(0,100),contact.matrix=merged.contact.matrix_g20max)
+```
+
+```{r}
+pdf("TRSL.VP_main.pdf")
+gdata <- TRSL_VP %>% filter(sample %in% c("C","L","V") )
+p <- ggplot(gdata, aes(bin2,10*n,color=sample))+
+  #geom_rect(xmin=0,xmax=100,ymin=0,ymax=1000,color="grey50")+
+      facet_grid(sample~orientation)+
+  scale_y_continuous(limits = c(0,2000))+
+  scale_color_manual(values = c("C"="#ff6666","L"="#cc9933","V"="#2574B6"))+
+      geom_line()+theme_classic()
+dev.off()
+
+png("TRSL.VP_main.png",width = 7,height = 7,units = "in",res = 300)
+print(p)
+dev.off()
+```
+
+
+```{r}
+
+supp_VP <- rbind(TRSL_VP,RNAseq_VP)
+
+
+pdf("TRSL.VP_supp.pdf")
+
+ggplot(supp_VP, aes(bin2,10*n,color=sample))+
+  #geom_rect(xmin=0,xmax=100,ymin=0,ymax=1000,color="grey50")+
+  facet_grid(factor(sample,levels = c("C", "L", "V",  "C_N", "L_N","V_N", "SylviRouskin", "Kim_DNB"))~orientation)+
+  scale_y_continuous(limits = c(0,2000))+
+  labs(title = "stringent pipeline",y="chimeric reads in 10nt window")+
+  geom_line()+theme_classic()
+dev.off()
+
+```
+
+
+```{r}
+
+
+pdf("TRSL.VP_gmax20.pdf")
+
+ggplot(g20max_VP, aes(bin2,10*n,color=sample))+
+  #geom_rect(xmin=0,xmax=100,ymin=0,ymax=1000,color="grey50")+
+  facet_grid(factor(sample,levels = c("C", "L", "V",  "C_N", "L_N","V_N", "SylviRouskin", "Kim_DNB"))~orientation)+
+  scale_y_continuous(limits = c(0,2000))+
+ # scale_color_manual(values = c("C"="#ff6666","L"="#cc9933","V"="#999933"))+
+  labs(title = "relax pipeline",y="chimeric reads in 10nt window")+
+      geom_line()+theme_classic()
+dev.off()
+
+```
+
+
+ 
