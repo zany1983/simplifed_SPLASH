@@ -24,3 +24,6 @@ counting_chimeras_for_sencondary_structure.Rmd is designated to count supportive
 
 For viewpoint analysis on specific loci, TRSl_VP.Rmd could be used. 
 
+To call domain boudaries, please enter DomainCalling subdirectory, cworld is implented: https://github.com/dekkerlab/cworld-dekker
+
+To call domain boudaries, please enter 3DStructure subdirectory.
