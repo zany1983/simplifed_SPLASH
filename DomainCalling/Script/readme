@@ -1,0 +1,8 @@
+#这里我们已经将cworld中DomainCalling需要用到的脚本拷贝到这个目录中，并对其中的依赖进行了修改
+#至少需要安装以下软件
+	bedtools
+	perl
+	python2
+	python3
+	R
+
