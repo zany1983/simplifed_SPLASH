@@ -32,7 +32,7 @@ hash <- function(key,value){
 ```{r samplelist}
 
 dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/hyb_files/"
-
+# hyb files could be found at https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE164565
 samplelist <- c(
       "L1","L2","L3",
       "C1","C2","C3",

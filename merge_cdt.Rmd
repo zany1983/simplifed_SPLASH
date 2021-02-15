@@ -119,18 +119,8 @@ data.table::fwrite(d2,file=paste0(x,"merged_",bin1cut[1],"_",bin1cut[2],"_",bin2
 ```
 
 ```{r}
-export_cdt(bin1 = c(12000,15000),bin2 = c(12000,15000))
-```
-
-```{r}
-export_cdt(bin2 = c(0,100),bin1 = c(21400,22000))
-
-
-```
-
-```{r}
 library(readxl)
-COVID_Normalize <- read_excel("~/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/COVID Normalize.xlsx", 
+COVID_Normalize <- read_excel("../cdtfiles/COVID Normalize.xlsx", 
     sheet = "collaspe")
 
 Total_readCount <- COVID_Normalize$mappedReadCount 
@@ -146,6 +136,7 @@ merged.matrix.cpm <- lapply(names(merged.matrix),function(x){
 names(merged.matrix.cpm) <- names(grouplist)
 saveRDS(merged.matrix.cpm,file ="merged.matrix.cpm.rds",compress = "gzip" )
 merged.matrix.cpm <- readRDS("merged.matrix.cpm.rds")
+
 ```
 
 
@@ -183,17 +174,17 @@ export_cdt_rpm <- function(data= merged.matrix,bin1cut=c(0,100),bin2cut=c(0,100)
       data.table::fwrite(d2,file=paste0(x,"merged_",bin1cut[1],"_",bin1cut[2],"_",bin2cut[1],"_",bin2cut[2],"_",value.var,".cdt"),sep = "\t",quote = F)
     })
 }
-names(merged.matrix.cpm) <- names(grouplist)
-
 
 ```
 
 ```{r}
+# export global heatmap
 export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,30000),bin2cut = c(0,30000),value.var = "rpm")
 ```
 
 
 ```{r}
+# export local heatmap
 export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(12000,15000),bin2cut = c(12000,15000),value.var = "rpm")
 
 export_cdt_rpm(data = merged.matrix.cpm,bin1cut = c(0,300),bin2cut = c(29500,29870),value.var = "rpm")
@@ -206,23 +197,12 @@ export_cdt_rpm(data = merged.matrix.cpm,bin2cut = c(0,100),bin1cut = c(21400,218
 export_cdt_rpm(data = merged.matrix.cpm,bin2cut = c(0,100),bin1cut = c(25180,28480),value.var = "rpm")
 ```
 
-```{r}
-export_gdata_rpm <- function(data= merged.matrix,bin1cut=c(0,100),bin2cut=c(0,100),value.var="n",multiple=1e6){
-  levels <- 
-    cdt<-  lapply(names(data),FUN = function(x){
-      
-      data <- data[[x]] %>% as.data.frame() %>% mutate(bin2=Arm5,bin1=Arm3) # 3'-5' chimeras
-      data.table <- data.table::data.table(bin1=factor(data$bin1,levels = (as.integer(bin1cut[1]/10):as.integer(bin1cut[2]/10))*10),
-                                           bin2=factor(data$bin2,levels = (as.integer(bin2cut[2]/10):as.integer(bin2cut[1]/10))*10),
-                                           value.var= multiple*data[[value.var]]) %>% na.omit() %>% mutate(sample=x)
- }) %>% bind_rows()
-}
 
-```
 
 
 ```{r export CPM matrix for TRS-L interaction}
-CDS.anno <- data.table::fread("/Users/yan/Documents/scientific/cronovirus/genome_analysis/SARS2.Narry.Annotation.txt",sep = "\t",header = T)
+# export and plot specific interactions
+CDS.anno <- data.table::fread("../annotations/SARS2.Narry.Annotation.txt",sep = "\t",header = T)
 ggplot_CPM_matrix <- function(data = merged.matrix.cpm,bin1cut = c(0,100),bin2cut = c(21400,21800),value.var = "rpm",multiple = 1e7,name="TRSL_S_3-5chimeras.heatmap.pdf"){
   gdata <- export_gdata_rpm(data = data,bin1cut = bin1cut,bin2cut = bin2cut,value.var = "rpm",multiple = 1e7)%>% type.convert()
   p <-ggplot(gdata,aes(bin2,bin1))+

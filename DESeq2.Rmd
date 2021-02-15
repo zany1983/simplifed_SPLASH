@@ -7,8 +7,7 @@ output: html_document
 ```{r color}
 col_DE <- c("up"="#FF3333","down"="#3399DD")
 ```
-
-we included V1 V2 and  V4.  
+  
 # combined 3'-5'  and 5'-3' chimeras
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -320,7 +319,6 @@ g <- ggplot(data=gdata,aes(x=log.FoldEnrichment,Description))+
 ```
 
 ```{r samplelist}
-# note: V3 included
 samplelist <- c(
       "C1","C2","C3",
       "L1","L2","L3",
@@ -329,7 +327,7 @@ samplelist <- c(
 
 names(samplelist) <- samplelist
 
-sample_info <- data.table::fread("../../../LibInfo.txt",sep = "\t")
+sample_info <- data.table::fread("../annotations/LibInfo.txt",sep = "\t")
 sample_info$lib_id_2 <- sub(pattern = "-",replacement = "_",x = sample_info$lib_id)
 
 ```
@@ -339,7 +337,7 @@ sample_info$lib_id_2 <- sub(pattern = "-",replacement = "_",x = sample_info$lib_
 ```{r   contact.matrx combined orientation}
 
 contact.sample.matrx <- lapply(samplelist,FUN = function(x){
- dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/"
+ dir <- "../cdtfiles/"
 data <- data.table::fread(paste0(dir,x,"_R2_virus-virus.entire.cdt.gz"),header = T,sep = "\t")
 data2 <- as.data.frame(data[2:3002,c(2,4:3004)],row.names = data$COL2[2:3002])
 data3 <- data2 %>% reshape2::melt(id.vars="COL2",value.name="count") %>%
@@ -400,24 +398,17 @@ dds <- DESeqDataSetFromMatrix(countData = countData.kept,
 rownames(dds) <- row.names(countData.kept) <- row.names(raw.data)[keep]
 saveRDS(dds,file = "dds.rds",compress = "gzip")
 dds <- readRDS("dds.rds")
-
 ```
 
 ```{r}
 
-read_dds_compareFC_baseMean <- function(dds="dds 1 1 .rds"){
+read_dds_compareFC_baseMean <- function(dds="dds.rds"){
   library(DESeq2)
   dds <- readRDS(dds)
 deseq_LvsC <- results(dds,contrast = c("sample","lysate","cell"))
 deseq_VvsC <- results(dds,contrast = c("sample","virion","cell"))
 deseq_VvsL <- results(dds,contrast = c("sample","virion","lysate"))
 
-
-# FC_compare <- data.frame(contact = row.names(dds),
-#                          LvsC = ifelse(deseq_LvsC@listData$padj < 0.05,deseq_LvsC@listData$log2FoldChange,0),
-#                          VvsC = ifelse(deseq_VvsC@listData$padj < 0.05,deseq_VvsC@listData$log2FoldChange,0),
-#                          VvsL = ifelse(deseq_VvsL@listData$padj < 0.05,deseq_VvsL@listData$log2FoldChange,0)) %>% reshape2::melt(id.vars="contact",variable.name="compare",value.name="log2FC") %>% 
-#   tidyr::separate(col = contact,into=c("bin1","bin2"),sep="_") %>% type.convert()
 
 FC_compare <- data.frame(contact = row.names(dds),
                          LvsC = deseq_LvsC@listData$log2FoldChange,
@@ -441,7 +432,7 @@ baseMean_FC_compare <- read_dds_compareFC_baseMean(dds = "dds.rds")
 
 ```
 
-```{r basic statistics}
+```{r basic statistics on differential interactions}
 
 DI <- lapply(c("VvsL", "VvsC"), function(x) {
   data <- baseMean_FC_compare %>% filter(compare ==x ) %>% filter(log2FC > 1 )
@@ -518,14 +509,9 @@ data.table::fwrite(d2,file=paste0(x,"_",".cdt"),sep = "\t",quote = F)
 
  export_cdt(data= baseMean_FC_compare,value.var = "log2FC")
 
- x <- levels(factor(baseMean_FC_compare$compare))[[1]]
+
 ```
 
-
-
-```{r}
-normalized_counts <- DESeq2::counts(dds, normalized=TRUE) 
-```
 
 
 ```{r}
@@ -536,6 +522,8 @@ CDS.anno <- data.table::fread("/Users/yan/Documents/scientific/cronovirus/genome
 
 
 ```{r}
+
+# arc plot for differential interactions
 plot_arc_DI2 <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0){
   compares <- levels(factor(data$compare))
   plot_list <- lapply(compares, function(x){
@@ -712,7 +700,7 @@ dev.off()
 
 
 ```{r}
-
+# compare loop length of differential interactions
 plot_looplen_DI <- function(data= baseMean_compare,logFC.cutoff = 1,range=c(0,30000),anno=CDS.anno,baseMean_cuttoff=0, loopRange=c(0,500)){
   compares <- levels(factor(data$compare))
   plot_list <- lapply(compares, function(x){
@@ -763,9 +751,10 @@ dev.off()
 ```
 
 
-# pick TRS-L interactions
+
 
 ```{r}
+# pick differential interactions meddiated by TRS-L
 TRS_L_compareFC <- function(dds="dds.rds"){
   
   dds <- readRDS(dds)
@@ -824,7 +813,9 @@ dev.off()
 
 
 ```{r export zoomeed-in cdt}
-# pick FSE
+# pick DE analysis results of specific interactions
+
+
 export_cdt_zoomedin <- function(dds="dds.rds",value.var = "log2FC",bin1cut=c(0,30000),bin2cut = c(30000,0)){
   
   

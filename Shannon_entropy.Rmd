@@ -1,0 +1,56 @@
+---
+title: "Untitled"
+author: "Yan"
+date: "2020/12/28"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(R.utils)
+```
+
+```{r useful functions}
+hash <- function(key,value){
+  hash <- value
+  names(hash) <- key
+  return( hash)
+}
+color_sample <-  c("C"="#ff6666","L"="#cc9933","V"="#2574B6")
+color_sample2 <-  c("C"="#ff6666","L"="#cc9933","V"="#2574B6","shuffled"="#669900")
+```
+
+
+```{r}
+merged.contact.matrx <- readRDS("merged.contact.matrx.rds")
+View(head(merged.contact.matrx$C))
+
+
+entropy_all <- lapply(c("C","L","V"),function(x){
+  data <- merged.contact.matrx[[x]]
+tmp.data <- data %>% reshape2::dcast(formula = variable~COL2,value.var = "count",fill = 0) %>% tibble::column_to_rownames(var = "variable")
+tmp.res <- tmp.data /rowSums(tmp.data)
+entropy <- - tmp.res * log2(1e-10+tmp.res) 
+entropy1 <- entropy %>% rowSums() 
+
+res <- data.frame(entropy = entropy1,bin=names(entropy1),sample=x)
+}) %>% bind_rows()  %>% type.convert()
+summary(entropy_all)
+
+
+p1 <- ggplot2::ggplot(entropy_all,aes(bin,y=entropy))+
+  geom_smooth(aes(color=sample))+
+  #facet_wrap("sample")+
+  theme_bw()
+
+pdf("shennon_entropy.pdf")
+p1
+dev.off()
+
+
+```
+
+
