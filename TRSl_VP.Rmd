@@ -14,7 +14,7 @@ library(R.utils)
 
 ```{r samplelist}
 
-dir <- "/Users/yan/Documents/scientific/cronovirus/G3D/nCov-hiR/ctd_files/"
+dir <- "../cdtfiles/"
 
 samplelist <- c(
       "L1","L2","L3",
