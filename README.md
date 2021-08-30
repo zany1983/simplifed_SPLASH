@@ -1,6 +1,8 @@
+[![DOI](https://zenodo.org/badge/332160841.svg)](https://zenodo.org/badge/latestdoi/332160841)
+
 # simplifed_SPLASH
 
-### requirments 
+### requirements 
 
 To completely run analysis from fastq to results in the paper, the following tools are required:
 
